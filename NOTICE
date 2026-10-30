@@ -1,0 +1,26 @@
+r-share
+Copyright the r-share contributors
+
+This product is licensed under the GNU Affero General Public License,
+Version 3 (AGPLv3). See the LICENSE file for the full text.
+
+Third-Party Dependency Notices
+-------------------------------
+
+r-share's Rust dependencies (see Cargo.toml) are permissively licensed
+(MIT/Apache-2.0 or similar) and carry no additional obligations beyond
+their own copyright/license notices.
+
+r-share's build.rs also builds and statically links c-share
+(https://github.com/longht021189/c-share), a separate AGPLv3 project --
+see c-share's own LICENSE and NOTICE. `c_share::waker` and `c_share::crypto`
+are always linked, and `crypto` always links wolfSSL (GPLv3 open-source
+edition) through c-share, regardless of any Cargo feature; `c_share::http`,
+built only when the `c_share_http` feature is enabled, additionally links
+curl -- see c-share's NOTICE for the wolfSSL combination's licensing
+analysis. Either way, a program built with r-share is bound by AGPLv3 as a
+whole through r-share's own license, independently of c-share's.
+
+Determining which third-party licenses apply to a given build of r-share,
+and complying with their terms, is solely the responsibility of whoever
+builds, links, or distributes it -- not the Licensor.

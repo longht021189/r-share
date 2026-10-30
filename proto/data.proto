@@ -1,0 +1,11 @@
+syntax = "proto3";
+
+package gbot;
+
+import "google/protobuf/timestamp.proto";
+
+message SignedData {
+  bytes content = 1;
+  optional bytes signature = 2;
+  google.protobuf.Timestamp timestamp = 3;
+}
