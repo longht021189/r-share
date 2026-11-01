@@ -52,7 +52,7 @@ To check that the local copy is the one in use, run `cargo tree -p r-share`: it 
 
 ## Building c-share
 
-`build.rs` builds [c-share](https://github.com/longht021189/c-share) (a CMake/vcpkg
+`build.rs` builds [c-share](https://github.com/longht021189/c-share) (a CMake
 C++ project, not a crate) and links its static libraries in. c-share isn't a Rust
 dependency, so it isn't declared in `Cargo.toml` -- `build.rs` finds it on disk:
 
@@ -62,26 +62,35 @@ dependency, so it isn't declared in `Cargo.toml` -- `build.rs` finds it on disk:
 `c_share::waker` and `c_share::crypto` are always built -- `crypto` backs
 `data::encryption`/`data::signing` (X25519, Ed25519, HKDF-SHA256,
 XChaCha20-Poly1305, and secure random, all via wolfSSL -- see
-`c-share/modules/crypto/README.md`) and needs wolfSSL, resolved via vcpkg, so
-**`VCPKG_ROOT` must always be set to build r-share**:
+`c-share/modules/crypto/README.md`). `c_share::http` additionally needs libcurl,
+so it stays behind the `c_share_http` feature, which also builds the
+`http_client` module (an async wrapper -- see its own doc comment).
 
-```sh
-VCPKG_ROOT=/path/to/vcpkg cargo build
-```
+c-share's dependencies (wolfSSL, curl, ...) are declared in
+[vcpkg-share](https://github.com/longht021189/vcpkg-share), and come either
+prebuilt or built with vcpkg; one of the two must be set:
 
-`c_share::http` additionally needs libcurl (on top of the wolfSSL every build
-already resolves), so it stays behind the `c_share_http` feature, which also
-builds the `http_client` module (an async wrapper -- see its own doc comment):
+- **Prebuilt** (no vcpkg needed): `VCPKG_SHARE_PREFIX` names the install prefix
+  for the target (`include/`, `lib/`, `share/`): a platform directory of
+  vcpkg-share's `deps/<hash>` branch, which g-bot's `vcpkg-share` workflow builds
+  (`darwin-arm64`, `linux-arm64`, `linux-x64`, `android-*`), or one built locally
+  with g-bot's `build-vcpkg-share/build.js` (see vcpkg-share's README).
 
-```sh
-VCPKG_ROOT=/path/to/vcpkg cargo build --features c_share_http
-```
+  ```sh
+  VCPKG_SHARE_PREFIX=/path/to/vcpkg-share/dist/darwin-arm64 cargo build --features c_share_http
+  ```
 
-The first build compiles wolfSSL from source through vcpkg, which is slow
-(the `c_share_http` feature additionally compiles curl); see c-share's own
-README for the full vcpkg/NDK prerequisites. On macOS this also needs Xcode's
-command line tools for `SystemConfiguration.framework`, which libcurl uses
-for proxy auto-detection.
+- **Built with vcpkg**: `VCPKG_ROOT`, and vcpkg-share checked out next to c-share
+  (`../vcpkg-share`) or at `VCPKG_SHARE_PATH`. The first build compiles wolfSSL
+  (and, with `c_share_http`, curl) from source, which is slow; see c-share's
+  README for the full vcpkg/NDK prerequisites.
+
+  ```sh
+  VCPKG_ROOT=/path/to/vcpkg cargo build --features c_share_http
+  ```
+
+On macOS the link also needs Xcode's command line tools for
+`SystemConfiguration.framework`, which libcurl uses for proxy auto-detection.
 
 Both modules' Rust bindings are generated at build time by `bindgen` straight
 from their plain-C header (`crypto.h`, `client_c.h` -- see

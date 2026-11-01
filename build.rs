@@ -59,23 +59,29 @@ fn generate_crypto_bindings(c_share_dir: &Path) {
         .expect("failed to write crypto_bindings.rs");
 }
 
-// Builds c-share (a sibling CMake/vcpkg C++ project, not a crate) and links
-// its static libraries into r-share. `waker` and `crypto` are always built
-// (crypto backs data::encryption/signing, and always needs wolfSSL via
-// vcpkg regardless); `http` additionally needs libcurl, so it stays behind
-// the `c_share_http` feature (it backs the `http` module).
+// Builds c-share (a sibling CMake project, not a crate) and links its static
+// libraries into r-share. `waker` and `crypto` are always built (crypto backs
+// data::encryption/signing, and always needs wolfSSL); `http` additionally
+// needs libcurl, so it stays behind the `c_share_http` feature (it backs the
+// `http` module).
+//
+// c-share's dependencies (wolfSSL, curl, ...) come from vcpkg-share, either:
+// - prebuilt: VCPKG_SHARE_PREFIX names an install prefix (include/, lib/,
+//   share/) for the target, as g-bot's vcpkg-share workflow pushes to
+//   vcpkg-share's deps/<hash> branch (or its build.js builds locally); no
+//   vcpkg is run, or
+// - built here: through vcpkg's toolchain (VCPKG_ROOT), with vcpkg-share's
+//   manifest (c-share's CMakeLists.txt finds vcpkg-share next to it, or at
+//   VCPKG_SHARE_PATH).
 fn build_c_share(c_share_dir: &Path) {
     println!("cargo:rerun-if-env-changed=C_SHARE_PATH");
+    println!("cargo:rerun-if-env-changed=VCPKG_SHARE_PREFIX");
+    println!("cargo:rerun-if-env-changed=VCPKG_SHARE_PATH");
+    println!("cargo:rerun-if-env-changed=VCPKG_ROOT");
     println!("cargo:rerun-if-changed={}", c_share_dir.display());
 
     let build_http = c_share_http_enabled();
-
-    let vcpkg_root = env::var("VCPKG_ROOT").expect(
-        "VCPKG_ROOT must be set: r-share builds c-share's `crypto` module (wolfSSL, \
-         via vcpkg) unconditionally, and `http` (additionally libcurl) when the \
-         `c_share_http` feature is enabled -- see c-share/README.md",
-    );
-
+    let prefix = env::var_os("VCPKG_SHARE_PREFIX").map(PathBuf::from);
     let triplet = vcpkg_triplet();
 
     let mut config = cmake::Config::new(&c_share_dir);
@@ -85,26 +91,41 @@ fn build_c_share(c_share_dir: &Path) {
         .define("C_SHARE_BUILD_TESTS", "OFF")
         .define("C_SHARE_BUILD_HTTP", if build_http { "ON" } else { "OFF" })
         .define("C_SHARE_BUILD_CRYPTO", "ON")
-        .define(
-            "CMAKE_TOOLCHAIN_FILE",
-            Path::new(&vcpkg_root).join("scripts/buildsystems/vcpkg.cmake"),
-        )
-        .define(
-            "VCPKG_OVERLAY_PORTS",
-            c_share_dir.join("vcpkg-overlays/ports"),
-        )
-        .build_target("all")
-        // Always explicit, not just for windows/android: left unset, vcpkg's
-        // toolchain file falls back to auto-detecting the *building*
-        // machine's own platform, which is wrong when that's a Linux-to-
-        // Linux cross-compile (e.g. an arm64 host targeting x64-linux) --
-        // `vcpkg_triplet()` already computes the right value for a native
-        // build too, so setting it unconditionally is never wrong.
-        .define("VCPKG_TARGET_TRIPLET", triplet);
+        .build_target("all");
+    if let Some(prefix) = &prefix {
+        println!("cargo:rerun-if-changed={}", prefix.join("lib").display());
+        config
+            .define("CMAKE_PREFIX_PATH", prefix)
+            // The prefix's own CMake configs (curl's pulls in its
+            // dependencies' targets), not whatever FindCURL or FindZLIB
+            // would find on the system.
+            .define("CMAKE_FIND_PACKAGE_PREFER_CONFIG", "ON");
+    } else {
+        let vcpkg_root = env::var("VCPKG_ROOT").expect(
+            "set VCPKG_SHARE_PREFIX (vcpkg-share's prebuilt dependencies for this target) \
+             or VCPKG_ROOT (to build them with vcpkg): r-share builds c-share's `crypto` \
+             module (wolfSSL) unconditionally, and `http` (additionally libcurl) when the \
+             `c_share_http` feature is enabled -- see r-share's README",
+        );
+        config
+            .define(
+                "CMAKE_TOOLCHAIN_FILE",
+                Path::new(&vcpkg_root).join("scripts/buildsystems/vcpkg.cmake"),
+            )
+            // Always explicit, not just for windows/android: left unset, vcpkg's
+            // toolchain file falls back to auto-detecting the *building*
+            // machine's own platform, which is wrong when that's a Linux-to-
+            // Linux cross-compile (e.g. an arm64 host targeting x64-linux) --
+            // `vcpkg_triplet()` already computes the right value for a native
+            // build too, so setting it unconditionally is never wrong.
+            .define("VCPKG_TARGET_TRIPLET", triplet);
+    }
     if target_os() == "android" {
-        // Mirrors c-share's android-* CMake presets: vcpkg's toolchain file
-        // chain-loads the NDK's, which needs the ABI and API level.
+        // Mirrors c-share's android-* CMake presets: the NDK's toolchain file
+        // (chain-loaded by vcpkg's, without a prefix), which needs the ABI and
+        // API level.
         let ndk = android_ndk();
+        let ndk_toolchain = ndk.join("build/cmake/android.toolchain.cmake");
         config
             // vcpkg's own Android toolchain (scripts/toolchains/android.cmake,
             // used for every port it builds) finds the NDK through
@@ -112,11 +133,20 @@ fn build_c_share(c_share_dir: &Path) {
             // it (Tauri's CLI sets NDK_HOME).
             .env("ANDROID_NDK_HOME", &ndk)
             .define(
-                "VCPKG_CHAINLOAD_TOOLCHAIN_FILE",
-                ndk.join("build/cmake/android.toolchain.cmake"),
+                if prefix.is_some() {
+                    "CMAKE_TOOLCHAIN_FILE"
+                } else {
+                    "VCPKG_CHAINLOAD_TOOLCHAIN_FILE"
+                },
+                ndk_toolchain,
             )
             .define("ANDROID_ABI", android_abi())
             .define("ANDROID_PLATFORM", format!("android-{ANDROID_API_LEVEL}"));
+        if let Some(prefix) = &prefix {
+            // The NDK's toolchain confines find_package to its sysroot unless
+            // a path is under CMAKE_FIND_ROOT_PATH.
+            config.define("CMAKE_FIND_ROOT_PATH", prefix);
+        }
     } else {
         // Other cross-compiles (e.g. a Linux host building for a different
         // Linux arch) have no chainloaded toolchain file to pick the right
@@ -183,7 +213,10 @@ fn build_c_share(c_share_dir: &Path) {
         _ => {}
     }
 
-    link_vcpkg_static_libs(&build_dir.join(format!("vcpkg_installed/{triplet}/lib")));
+    match &prefix {
+        Some(prefix) => link_vcpkg_static_libs(&prefix.join("lib")),
+        None => link_vcpkg_static_libs(&build_dir.join(format!("vcpkg_installed/{triplet}/lib"))),
+    }
 }
 
 // Neither c-share module has a CMake install/export config to hand us an
