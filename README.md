@@ -72,9 +72,10 @@ prebuilt or built with vcpkg; one of the two must be set:
 
 - **Prebuilt** (no vcpkg needed): `VCPKG_SHARE_PREFIX` names the install prefix
   for the target (`include/`, `lib/`, `share/`): a platform directory of
-  vcpkg-share's `deps/<hash>` branch, which g-bot's `vcpkg-share` workflow builds
-  (`darwin-arm64`, `linux-arm64`, `linux-x64`, `android-*`), or one built locally
-  with g-bot's `build-vcpkg-share/build.js` (see vcpkg-share's README).
+  vcpkg-share's `deps` branch, which g-bot's `vcpkg-share` workflow builds
+  (`darwin-arm64`, `linux-arm64`, `linux-x64`, `android-*`; its commit message
+  names the hash of what they were built from), or one built locally with
+  g-bot's `build-vcpkg-share/build.js` (into vcpkg-share's `dist/`).
 
   ```sh
   VCPKG_SHARE_PREFIX=/path/to/vcpkg-share/dist/darwin-arm64 cargo build --features c_share_http
