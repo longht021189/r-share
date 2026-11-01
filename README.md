@@ -72,7 +72,7 @@ prebuilt or built with vcpkg; one of the two must be set:
 
 - **Prebuilt** (no vcpkg needed): `VCPKG_SHARE_PREFIX` names the install prefix
   for the target (`include/`, `lib/`, `share/`): a platform directory of
-  vcpkg-share's `deps` branch, which g-bot's `vcpkg-share` workflow builds
+  vcpkg-share's `deps` branch, which its `deps` workflow builds
   (`darwin-arm64`, `linux-arm64`, `linux-x64`, `android-*`; its commit message
   names the hash of what they were built from), or one built locally with
   g-bot's `build-vcpkg-share/build.js` (into vcpkg-share's `dist/`).
