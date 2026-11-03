@@ -94,12 +94,13 @@ fn build_c_share(c_share_dir: &Path) {
         .build_target("all");
     if let Some(prefix) = &prefix {
         println!("cargo:rerun-if-changed={}", prefix.join("lib").display());
-        config
-            .define("CMAKE_PREFIX_PATH", prefix)
-            // The prefix's own CMake configs (curl's pulls in its
-            // dependencies' targets), not whatever FindCURL or FindZLIB
-            // would find on the system.
-            .define("CMAKE_FIND_PACKAGE_PREFER_CONFIG", "ON");
+        // CMake's own find modules where it has one, as under vcpkg's
+        // toolchain: zlib's config defines only ZLIB::ZLIBSTATIC, so curl's
+        // config and c-share's http module need FindZLIB for ZLIB::ZLIB
+        // (vcpkg's zlib wrapper forces it too). FindCURL still prefers
+        // curl's config, and CMAKE_PREFIX_PATH comes before the system's
+        // paths, so everything is found in the prefix.
+        config.define("CMAKE_PREFIX_PATH", prefix);
     } else {
         let vcpkg_root = env::var("VCPKG_ROOT").expect(
             "set VCPKG_SHARE_PREFIX (vcpkg-share's prebuilt dependencies for this target) \
